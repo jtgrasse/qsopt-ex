@@ -140,7 +140,7 @@ int main(int argc, char **argv)
 	}
 
 	/* QSexact_optimal_test returns 1 if (x, y, basis) is a certified optimum,
-	 * 0 otherwise. On failure it prints the violation and magnitude of violation */
+	 * 0 otherwise. It always prints exact-rational max primal/dual violations. */
 	is_optimal = QSexact_optimal_test2(p, x_struct, y_rows, basis);
 
 verdict:
@@ -160,10 +160,9 @@ verdict:
 		}
 		mpq_clear(dobj);
 	} else {
-		printf("  RESULT: basis FAILED verification -- see the\n"
-			   "          'solution is infeasible for constraint ...' /\n"
-			   "          'constraint ... artificial ...' messages above\n"
-			   "          for which constraint is violated and by how much.\n");
+		printf("  RESULT: basis FAILED verification.\n"
+			   "          See 'VERIFICATION SUMMARY' above for exact-rational\n"
+			   "          max primal violation and max dual violation.\n");
 	}
 
 done:

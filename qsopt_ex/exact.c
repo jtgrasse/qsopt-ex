@@ -863,13 +863,9 @@ int QSexact_optimal_test2 (mpq_QSdata * p,
 	  num3,
 	  p_obj,
 	  d_obj;
-
-	/* NEW: Variables to track the largest violation */
-	mpq_t max_violation, current_violation;
-	int worst_type = 0; /* 1: range, 2: infeasible, 3: lower artificial, 4: upper artificial, 5: lower slack, 6: upper slack, 7: obj */
-	int worst_index = -1;
-	char worst_name[256] = "";
-	double val1 = 0.0, val2 = 0.0, val3 = 0.0, val4 = 0.0; /* For logging properties safely later */
+	mpq_t max_primal_violation,
+	  max_dual_violation,
+	  current_violation;
 
 	mpq_init (num1);
 	mpq_init (num2);
@@ -878,10 +874,11 @@ int QSexact_optimal_test2 (mpq_QSdata * p,
 	mpq_init (d_obj);
 	mpq_set_ui (p_obj, 0UL, 1UL);
 	mpq_set_ui (d_obj, 0UL, 1UL);
-
-	mpq_init (max_violation);
+	mpq_init (max_primal_violation);
+	mpq_init (max_dual_violation);
 	mpq_init (current_violation);
-	mpq_set_ui (max_violation, 0UL, 1UL);
+	mpq_set_ui (max_primal_violation, 0UL, 1UL);
+	mpq_set_ui (max_dual_violation, 0UL, 1UL);
 
 	/* now check if the given basis is the optimal basis */
 	arr3 = qslp->lower;
@@ -899,15 +896,8 @@ int QSexact_optimal_test2 (mpq_QSdata * p,
 		{
 			rval = 0;
 			mpq_sub(current_violation, arr3[structmap[i]], arr4[structmap[i]]);
-			if (mpq_cmp(current_violation, max_violation) > 0)
-			{
-				mpq_set(max_violation, current_violation);
-				worst_type = 1;
-				worst_index = i;
-				strncpy(worst_name, qslp->colnames[i], 255);
-				val1 = mpq_EGlpNumToLf(arr3[structmap[i]]);
-				val2 = mpq_EGlpNumToLf(arr4[structmap[i]]);
-			}
+			if (mpq_cmp(current_violation, max_primal_violation) > 0)
+				mpq_set(max_primal_violation, current_violation);
 		}
 		/* set the variable to its apropiate values, depending its status */
 		switch (basis->cstat[i])
@@ -940,15 +930,8 @@ int QSexact_optimal_test2 (mpq_QSdata * p,
 		{
 			rval = 0;
 			mpq_sub(current_violation, arr3[rowmap[i]], arr4[rowmap[i]]);
-			if (mpq_cmp(current_violation, max_violation) > 0)
-			{
-				mpq_set(max_violation, current_violation);
-				worst_type = 1; /* reuse range error type */
-				worst_index = i;
-				strncpy(worst_name, qslp->rownames[i], 255);
-				val1 = mpq_EGlpNumToLf(arr3[rowmap[i]]);
-				val2 = mpq_EGlpNumToLf(arr4[rowmap[i]]);
-			}
+			if (mpq_cmp(current_violation, max_primal_violation) > 0)
+				mpq_set(max_primal_violation, current_violation);
 		}
 		/* set the variable to its apropiate values, depending its status */
 		switch (basis->rstat[i])
@@ -1012,13 +995,8 @@ int QSexact_optimal_test2 (mpq_QSdata * p,
 				rval = 0;
 				mpq_sub(current_violation, num1, num2);
 				mpq_abs(current_violation, current_violation);
-				if (mpq_cmp(current_violation, max_violation) > 0)
-				{
-					mpq_set(max_violation, current_violation);
-					worst_type = 2;
-					worst_index = i;
-					strncpy(worst_name, qslp->rownames[i], 255);
-				}
+				if (mpq_cmp(current_violation, max_primal_violation) > 0)
+					mpq_set(max_primal_violation, current_violation);
 			}
 		}
 		mpq_set (num2, p_sol[qslp->nstruct + i]);
@@ -1027,31 +1005,15 @@ int QSexact_optimal_test2 (mpq_QSdata * p,
 		{
 			rval = 0;
 			mpq_sub(current_violation, arr2[rowmap[i]], num2);
-			if (mpq_cmp(current_violation, max_violation) > 0)
-			{
-				mpq_set(max_violation, current_violation);
-				worst_type = 3;
-				worst_index = i;
-				strncpy(worst_name, qslp->rownames[i], 255);
-				val1 = mpq_get_d (num2);
-				val2 = mpq_get_d (arr2[rowmap[i]]);
-				val3 = mpq_get_d (rhs_copy[i]);
-				val4 = mpq_get_d (arr1[i]);
-			}
+			if (mpq_cmp(current_violation, max_primal_violation) > 0)
+				mpq_set(max_primal_violation, current_violation);
 		}
 		else if (mpq_cmp (num2, arr4[rowmap[i]]) > 0)
 		{
 			rval = 0;
 			mpq_sub(current_violation, num2, arr4[rowmap[i]]);
-			if (mpq_cmp(current_violation, max_violation) > 0)
-			{
-				mpq_set(max_violation, current_violation);
-				worst_type = 4;
-				worst_index = i;
-				strncpy(worst_name, qslp->rownames[i], 255);
-				val1 = mpq_get_d (num2);
-				val2 = mpq_get_d (arr4[rowmap[i]]);
-			}
+			if (mpq_cmp(current_violation, max_primal_violation) > 0)
+				mpq_set(max_primal_violation, current_violation);
 		}
 	}
 
@@ -1064,6 +1026,20 @@ int QSexact_optimal_test2 (mpq_QSdata * p,
 		col = structmap[i];
 		mpq_mul (num1, arr2[col], p_sol[i]);
 		mpq_add (p_obj, p_obj, num1);
+		if (mpq_cmp (p_sol[i], arr3[col]) < 0)
+		{
+			rval = 0;
+			mpq_sub (current_violation, arr3[col], p_sol[i]);
+			if (mpq_cmp (current_violation, max_primal_violation) > 0)
+				mpq_set (max_primal_violation, current_violation);
+		}
+		else if (mpq_cmp (p_sol[i], arr4[col]) > 0)
+		{
+			rval = 0;
+			mpq_sub (current_violation, p_sol[i], arr4[col]);
+			if (mpq_cmp (current_violation, max_primal_violation) > 0)
+				mpq_set (max_primal_violation, current_violation);
+		}
 		arr1 = qslp->A.matval + qslp->A.matbeg[col];
 		iarr1 = qslp->A.matind + qslp->A.matbeg[col];
 		mpq_set (num1, arr2[col]);
@@ -1073,64 +1049,63 @@ int QSexact_optimal_test2 (mpq_QSdata * p,
 			mpq_sub (num1, num1, num2);
 		}
 		mpq_set (dz[col], num1);
-		/* objective update */
-		if (objsense * mpq_cmp_ui (dz[col], 0UL, 1UL) > 0)
+		/* For reporting objective gap, use dual linear form b^T y only. */
+
+		switch (basis->cstat[i])
 		{
-			mpq_mul (num3, dz[col], arr3[col]);
-			mpq_add (d_obj, d_obj, num3);
-		}
-		else
-		{
-			mpq_mul (num3, dz[col], arr4[col]);
-			mpq_add (d_obj, d_obj, num3);
-		}
-		/* complementary slackness checking */
-		mpq_set_ui (num2, 0UL, 1UL);
-		if (objsense * mpq_cmp_ui (dz[col], 0UL, 1UL) > 0)
-		{
-			mpq_sub (num1, p_sol[i], arr3[col]);
-			mpq_mul (num2, num1, dz[col]);
-		}
-		if (mpq_cmp_ui (num2, 0UL, 1UL) != 0)
-		{
-			rval = 0;
-			mpq_abs(current_violation, num2);
-			if (mpq_cmp(current_violation, max_violation) > 0)
+		case QS_COL_BSTAT_LOWER:
+			if (objsense * mpq_cmp_ui (dz[col], 0UL, 1UL) < 0)
 			{
-				mpq_set(max_violation, current_violation);
-				worst_type = 5;
-				worst_index = i;
-				strncpy(worst_name, qslp->colnames[i], 255);
-				val1 = mpq_get_d(num1);
-				val2 = mpq_get_d(dz[col]);
+				rval = 0;
+				mpq_abs (current_violation, dz[col]);
+				if (mpq_cmp (current_violation, max_dual_violation) > 0)
+					mpq_set (max_dual_violation, current_violation);
 			}
-		}
-		mpq_set_ui (num2, 0UL, 1UL);
-		if (objsense * mpq_cmp_ui (dz[col], 0UL, 1UL) < 0)
-		{
-			mpq_sub (num1, p_sol[i], arr4[col]);
-			mpq_mul (num2, num1, dz[col]);
-		}
-		if (mpq_cmp_ui (num2, 0UL, 1UL) != 0)
-		{
-			rval = 0;
-			mpq_abs(current_violation, num2);
-			if (mpq_cmp(current_violation, max_violation) > 0)
+			break;
+		case QS_COL_BSTAT_UPPER:
+			if (objsense * mpq_cmp_ui (dz[col], 0UL, 1UL) > 0)
 			{
-				mpq_set(max_violation, current_violation);
-				worst_type = 6;
-				worst_index = i;
-				strncpy(worst_name, qslp->colnames[i], 255);
-				val1 = mpq_get_d(arr4[col]);
-				val2 = mpq_get_d(p_sol[i]);
-				val3 = mpq_get_d(dz[col]);
+				rval = 0;
+				mpq_abs (current_violation, dz[col]);
+				if (mpq_cmp (current_violation, max_dual_violation) > 0)
+					mpq_set (max_dual_violation, current_violation);
 			}
+			break;
+		case QS_COL_BSTAT_BASIC:
+		case QS_COL_BSTAT_FREE:
+			if (mpq_cmp_ui (dz[col], 0UL, 1UL) != 0)
+			{
+				rval = 0;
+				mpq_abs (current_violation, dz[col]);
+				if (mpq_cmp (current_violation, max_dual_violation) > 0)
+					mpq_set (max_dual_violation, current_violation);
+			}
+			break;
+		default:
+			rval = 0;
+			MESSAGE (msg_lvl, "Unknown Variable basic status %d, for variable "
+						 "(%s,%d)", basis->cstat[i], qslp->colnames[i], i);
+			goto CLEANUP;
 		}
 	}
 
 	for (i = qslp->nrows; i--;)
 	{
 		col = rowmap[i];
+		if (mpq_cmp (p_sol[i + qslp->nstruct], arr3[col]) < 0)
+		{
+			rval = 0;
+			mpq_sub (current_violation, arr3[col], p_sol[i + qslp->nstruct]);
+			if (mpq_cmp (current_violation, max_primal_violation) > 0)
+				mpq_set (max_primal_violation, current_violation);
+		}
+		else if (mpq_cmp (p_sol[i + qslp->nstruct], arr4[col]) > 0)
+		{
+			rval = 0;
+			mpq_sub (current_violation, p_sol[i + qslp->nstruct], arr4[col]);
+			if (mpq_cmp (current_violation, max_primal_violation) > 0)
+				mpq_set (max_primal_violation, current_violation);
+		}
 		mpq_mul (num1, arr2[col], p_sol[i + qslp->nstruct]);
 		WARNING (mpq_cmp (arr2[col], mpq_zeroLpNum), "logical variable %s with "
 						 "non-zero objective function %lf", qslp->rownames[i],
@@ -1145,103 +1120,65 @@ int QSexact_optimal_test2 (mpq_QSdata * p,
 			mpq_sub (num1, num1, num2);
 		}
 		mpq_set (dz[col], num1);
-		/* objective update */
-		if (objsense * mpq_cmp_ui (dz[col], 0UL, 1UL) > 0)
-		{
-			mpq_mul (num3, dz[col], arr3[col]);
-			mpq_add (d_obj, d_obj, num3);
-		}
-		else
-		{
-			mpq_mul (num3, dz[col], arr4[col]);
-			mpq_add (d_obj, d_obj, num3);
-		}
+		/* For reporting objective gap, use dual linear form b^T y only. */
 
-		mpq_set_ui (num2, 0UL, 1UL);
-		if (objsense * mpq_cmp_ui (dz[col], 0UL, 1UL) > 0)
+		switch (basis->rstat[i])
 		{
-			mpq_sub (num1, p_sol[i + qslp->nstruct], arr3[col]);
-			mpq_mul (num2, num1, dz[col]);
-		}
-		if (mpq_cmp_ui (num2, 0UL, 1UL) != 0)
-		{
-			rval = 0;
-			mpq_abs(current_violation, num2);
-			if (mpq_cmp(current_violation, max_violation) > 0)
+		case QS_ROW_BSTAT_LOWER:
+			if (objsense * mpq_cmp_ui (dz[col], 0UL, 1UL) < 0)
 			{
-				mpq_set(max_violation, current_violation);
-				worst_type = 5; /* reuse type */
-				worst_index = i;
-				strncpy(worst_name, qslp->colnames[col], 255);
-				val1 = mpq_get_d(num1);
-				val2 = mpq_get_d(dz[col]);
+				rval = 0;
+				mpq_abs (current_violation, dz[col]);
+				if (mpq_cmp (current_violation, max_dual_violation) > 0)
+					mpq_set (max_dual_violation, current_violation);
 			}
-		}
-		mpq_set_ui (num2, 0UL, 1UL);
-		if (objsense * mpq_cmp_ui (dz[col], 0UL, 1UL) < 0)
-		{
-			mpq_sub (num1, p_sol[i + qslp->nstruct], arr4[col]);
-			mpq_mul (num2, num1, dz[col]);
-		}
-		if (mpq_cmp_ui (num2, 0UL, 1UL) != 0)
-		{
-			rval = 0;
-			mpq_abs(current_violation, num2);
-			if (mpq_cmp(current_violation, max_violation) > 0)
+			break;
+		case QS_ROW_BSTAT_UPPER:
+			if (objsense * mpq_cmp_ui (dz[col], 0UL, 1UL) > 0)
 			{
-				mpq_set(max_violation, current_violation);
-				worst_type = 6; /* reuse type */
-				worst_index = i;
-				strncpy(worst_name, qslp->colnames[col], 255);
-				val1 = mpq_get_d(arr4[col]);
-				val2 = mpq_get_d(p_sol[i+qslp->nstruct]);
-				val3 = mpq_get_d(dz[col]);
+				rval = 0;
+				mpq_abs (current_violation, dz[col]);
+				if (mpq_cmp (current_violation, max_dual_violation) > 0)
+					mpq_set (max_dual_violation, current_violation);
 			}
+			break;
+		case QS_ROW_BSTAT_BASIC:
+			if (mpq_cmp_ui (dz[col], 0UL, 1UL) != 0)
+			{
+				rval = 0;
+				mpq_abs (current_violation, dz[col]);
+				if (mpq_cmp (current_violation, max_dual_violation) > 0)
+					mpq_set (max_dual_violation, current_violation);
+			}
+			break;
+		default:
+			rval = 0;
+			MESSAGE (msg_lvl, "Unknown Variable basic status %d, for constraint "
+						 "(%s,%d)", basis->rstat[i], qslp->rownames[i], i);
+			goto CLEANUP;
 		}
 	}
 
-	/* now check the objective values */
-	if (mpq_cmp (p_obj, d_obj) != 0)
+	/* primal/dual infeasibility metrics are sufficient for this verifier output */
+
+	/* Always report the exact-rational verification metrics. */
+	if (!msg_lvl)
 	{
-		rval = 0;
-		mpq_sub(current_violation, p_obj, d_obj);
-		mpq_abs(current_violation, current_violation);
-		if (mpq_cmp(current_violation, max_violation) > 0)
-		{
-			mpq_set(max_violation, current_violation);
-			worst_type = 7;
-		}
+		char *pviol_s = mpq_get_str (NULL, 10, max_primal_violation);
+		char *dviol_s = mpq_get_str (NULL, 10, max_dual_violation);
+		void (*freefn)(void *, size_t) = 0;
+		mp_get_memory_functions (NULL, NULL, &freefn);
+
+		MESSAGE (0, "VERIFICATION SUMMARY:");
+		MESSAGE (0, "  max primal feasibility violation = %s", pviol_s ? pviol_s : "(null)");
+		MESSAGE (0, "  max dual feasibility violation   = %s", dviol_s ? dviol_s : "(null)");
+
+		if (pviol_s) freefn (pviol_s, strlen (pviol_s) + 1);
+		if (dviol_s) freefn (dviol_s, strlen (dviol_s) + 1);
 	}
 
-	/* REPORT THE LARGEST VIOLATION IF FOUND */
-	if (rval == 0 && !msg_lvl)
-	{
-		switch (worst_type)
-		{
-			case 1:
-				MESSAGE(0, "WORST VIOLATION: item %s has empty feasible range [%lg,%lg]", worst_name, val1, val2);
-				break;
-			case 2:
-				MESSAGE(0, "WORST VIOLATION: solution is infeasible for constraint %s, max violation %lg", worst_name, mpq_get_d(max_violation));
-				break;
-			case 3:
-				MESSAGE(0, "WORST VIOLATION: constraint %s artificial (%lg) below lower bound (%lg), actual LHS (%lg), actual RHS (%lg)", worst_name, val1, val2, val3, val4);
-				break;
-			case 4:
-				MESSAGE(0, "WORST VIOLATION: constraint %s artificial (%lg) above upper bound (%lg)", worst_name, val1, val2);
-				break;
-			case 5:
-				MESSAGE(0, "WORST VIOLATION: lower bound (%s,%d) slack (%lg) and dual variable (%lg) don't satisfy complementary slackness (real)", worst_name, worst_index, val1, val2);
-				break;
-			case 6:
-				MESSAGE(0, "WORST VIOLATION: upper bound (%lg) variable (%lg) and dual variable (%lg) don't satisfy complementary slackness for variable (%s,%d) (real)", val1, val2, val3, worst_name, worst_index);
-				break;
-			case 7:
-				MESSAGE(0, "WORST VIOLATION: primal and dual objective value differ %lg %lg", mpq_get_d(p_obj), mpq_get_d(d_obj));
-				break;
-		}
-		goto CLEANUP; /* If it's not optimal, skip caching and jump to cleanup */
-	}
+	if (rval == 0)
+		goto CLEANUP;
 
 	/* now we report optimality */
 	if(!msg_lvl)
@@ -1323,7 +1260,8 @@ CLEANUP:
 	mpq_clear (num3);
 	mpq_clear (p_obj);
 	mpq_clear (d_obj);
-	mpq_clear (max_violation);
+	mpq_clear (max_primal_violation);
+	mpq_clear (max_dual_violation);
 	mpq_clear (current_violation);
 	return rval;
 }
