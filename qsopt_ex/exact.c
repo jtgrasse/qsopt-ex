@@ -40,6 +40,7 @@
 #include "eg_exutil.h"
 #include "except.h"
 #include "timing_log.h"
+#include "pivot_log.h"
 
 #include "basis_mpq.h"
 #include "editor_dbl.h"
@@ -816,6 +817,9 @@ int QSexact_optimal_test (mpq_QSdata * p,
 
 	/* ending */
 CLEANUP:
+	pivot_log_comment ("mpq: exact rational optimality test of the current basis "
+			"(Ax = b and l <= x <= u, reduced costs d = c - A^T y of the right sign, "
+			"equal primal and dual objective): %s", rval ? "passed" : "failed");
 	// testing for log file
         clock_t end = clock();
         double duration = (double)(end - start) / CLOCKS_PER_SEC;
@@ -1247,6 +1251,9 @@ int QSexact_optimal_test2 (mpq_QSdata * p,
 
 	/* ending */
 CLEANUP:
+	pivot_log_comment ("mpq: exact rational optimality test of the current basis "
+			"(Ax = b and l <= x <= u, reduced costs d = c - A^T y of the right sign, "
+			"equal primal and dual objective): %s", rval ? "passed" : "failed");
 	// testing for log file
         clock_t end = clock();
         double duration = (double)(end - start) / CLOCKS_PER_SEC;
@@ -1370,6 +1377,8 @@ int QSexact_infeasible_test (mpq_QSdata * p, mpq_t * d_sol)
 
 	/* ending */
 CLEANUP:
+	pivot_log_comment ("mpq: exact rational test of the infeasibility certificate "
+			"(Farkas dual ray): %s", rval ? "passed, LP is infeasible" : "failed");
 	// testing for log file
         clock_t end = clock();
         double duration = (double)(end - start) / CLOCKS_PER_SEC;
@@ -1528,6 +1537,11 @@ static int QSexact_basis_status (mpq_QSdata * p_mpq,
 		*status = QS_LP_UNBOUNDED;
 	else
 		*status = QS_LP_UNSOLVED;
+	pivot_log_comment ("mpq: basis factored and checked in exact rational arithmetic "
+			"(QSexact_basis_status): %s",
+			(*status == QS_LP_OPTIMAL) ? "optimal" :
+			((*status == QS_LP_INFEASIBLE) ? "infeasible" :
+			 ((*status == QS_LP_UNBOUNDED) ? "unbounded" : "not optimal")));
 	EGtimerStop (&local_timer);
 	if(!msg_lvl)
 	{
@@ -1907,6 +1921,42 @@ int QSexact_verify (
 }
 
 /* ========================================================================= */
+/** @brief write the certified solution in the solver's cache to the pivot
+ * log, in canonical column order (structurals, then the logical of each row) */
+static void pivot_log_exact_solution (mpq_QSdata * p)
+{
+	mpq_ILLlpdata *qslp = p->qslp;
+	mpq_ILLlp_cache *cache = p->cache;
+	const int nstruct = qslp->nstruct, nrows = qslp->nrows, ncols = qslp->ncols;
+	mpq_t *x, *d;
+	int i;
+	if (!cache || cache->status != QS_LP_OPTIMAL || cache->nstruct != nstruct ||
+			cache->nrows != nrows)
+	{
+		pivot_log_comment ("no exact solution available");
+		return;
+	}
+	x = mpq_EGlpNumAllocArray (ncols);
+	d = mpq_EGlpNumAllocArray (ncols);
+	for (i = 0; i < nstruct; i++)
+	{
+		mpq_set (x[i], cache->x[i]);
+		mpq_set (d[i], cache->rc[i]);
+	}
+	for (i = 0; i < nrows; i++)
+	{
+		/* a logical has cost 0 and one entry a_i in row i: d = -a_i y_i */
+		const int col = qslp->rowmap[i];
+		mpq_set (x[nstruct + i], cache->slack[i]);
+		mpq_mul (d[nstruct + i], qslp->A.matval[qslp->A.matbeg[col]], cache->pi[i]);
+		mpq_neg (d[nstruct + i], d[nstruct + i]);
+	}
+	pivot_log_solution (ncols, nrows, x, cache->pi, d, cache->val);
+	mpq_EGlpNumFreeArray (x);
+	mpq_EGlpNumFreeArray (d);
+}
+
+/* ========================================================================= */
 int QSexact_solver (mpq_QSdata * p_mpq, mpq_t * const x, mpq_t * const y, QSbasis * const ebasis, int simplexalgo, int *status)
 {
 	// clock start for timing purposes
@@ -1928,7 +1978,11 @@ int QSexact_solver (mpq_QSdata * p_mpq, mpq_t * const x, mpq_t * const y, QSbasi
 	mpf_t *x_mpf = 0,
 	 *y_mpf = 0;
 	int const msg_lvl = __QS_SB_VERB <= DEBUG ? 0: (1 - p_mpq->simplex_display) * 10000;
+	const char *start_from = 0;
 	*status = 0;
+	pivot_log_problem (p_mpq->qslp, "Exact rational LP after reading and adding the "
+			"logical variables: the A, b, c and bounds against which QSopt_ex checks "
+			"primal (Ax = b, l <= x <= u) and dual (A^T y + d = c) feasibility");
 	/* save the problem if we are really debugging */
 	if(DEBUG >= __QS_SB_VERB)
 	{
@@ -1951,6 +2005,8 @@ int QSexact_solver (mpq_QSdata * p_mpq, mpq_t * const x, mpq_t * const y, QSbasi
 	if(__QS_SB_VERB <= DEBUG) p_dbl->simplex_display = 1;
 	if (ebasis && ebasis->nstruct)
 		dbl_QSload_basis (p_dbl, ebasis); // AP: EGLPNUM_TYPENAME_QSload_basis in qsopt.c
+	pivot_log_comment ("Precision: solving in double precision (dbl)%s",
+			(ebasis && ebasis->nstruct) ? ", warm start from the user-supplied basis" : "");
 	if (dbl_ILLeditor_solve (p_dbl, simplexalgo))
 	{
 		MESSAGE(p_mpq->simplex_display ? 0: __QS_SB_VERB,
@@ -2115,6 +2171,7 @@ int QSexact_solver (mpq_QSdata * p_mpq, mpq_t * const x, mpq_t * const y, QSbasi
 
 		//AP : tester code
 		QSlog("HUZAHHHHHHHHHH %d %d", last_iter, last_status);
+		start_from = "from scratch";
 		if(last_status == QS_LP_OPTIMAL || last_status == QS_LP_INFEASIBLE)
 		{
 			if (p_mpq->simplex_display || DEBUG >= __QS_SB_VERB)
@@ -2128,15 +2185,18 @@ int QSexact_solver (mpq_QSdata * p_mpq, mpq_t * const x, mpq_t * const y, QSbasi
 				mpf_QSfree_basis (basis);
 				simplexalgo = DUAL_SIMPLEX;
 				basis = 0;
+				start_from = "warm start from the previous precision's final basis";
 			}
 			else if (ebasis && ebasis->nstruct)
 			{
 				mpf_QSload_basis (p_mpf, ebasis);
 				simplexalgo = DUAL_SIMPLEX;
+				start_from = "warm start from the user-supplied basis";
 			}
 		}
 		else
 		{
+			start_from = "from scratch, the previous basis is discarded";
 			if(p_mpf->basis)
 			{
 				mpf_ILLlp_basis_free(p_mpf->basis);
@@ -2149,6 +2209,8 @@ int QSexact_solver (mpq_QSdata * p_mpq, mpq_t * const x, mpq_t * const y, QSbasi
 			}
 		}
 
+		pivot_log_comment ("Precision boost: solving in mpf with %u bits, %s",
+				precision, start_from);
 		if (mpf_ILLeditor_solve (p_mpf, simplexalgo))
 		{
 			if (p_mpq->simplex_display || DEBUG >= __QS_SB_VERB)
@@ -2292,6 +2354,12 @@ int QSexact_solver (mpq_QSdata * p_mpq, mpq_t * const x, mpq_t * const y, QSbasi
 	}
 	/* ending */
 CLEANUP:
+	pivot_log_comment ("Final status: %s",
+			(*status == QS_LP_OPTIMAL) ? "OPTIMAL" :
+			((*status == QS_LP_INFEASIBLE) ? "INFEASIBLE" :
+			 ((*status == QS_LP_UNBOUNDED) ? "UNBOUNDED" : "UNDEFINED")));
+	if (pivot_log_active && *status == QS_LP_OPTIMAL)
+		pivot_log_exact_solution (p_mpq);
 	dbl_EGlpNumFreeArray (x_dbl);
 	dbl_EGlpNumFreeArray (y_dbl);
 	mpq_EGlpNumFreeArray (x_mpq);

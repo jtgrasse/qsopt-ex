@@ -22,7 +22,8 @@ MAIN_SOURCE_FILES = \
 	qsopt_ex/sortrus_common.c \
 	qsopt_ex/QSopt_ex_version.c \
 	qsopt_ex/timing_log.c \
-	qsopt_ex/basis_snapshot.c
+	qsopt_ex/basis_snapshot.c \
+	qsopt_ex/pivot_log.c
 
 # Header files
 PUBLIC_HEADER_FILES = \
@@ -61,7 +62,8 @@ PRIVATE_HEADER_FILES = \
 	qsopt_ex/trace.h \
 	qsopt_ex/util.h \
 	qsopt_ex/timing_log.h \
-	qsopt_ex/basis_snapshot.h
+	qsopt_ex/basis_snapshot.h \
+	qsopt_ex/pivot_log.h
 
 # These source files have to be instantiated using the
 # type template mechanism

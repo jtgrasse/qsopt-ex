@@ -48,6 +48,7 @@ static int TRACE = 0;
 #include "fct_EGLPNUM_TYPENAME.h"
 #include "lp_EGLPNUM_TYPENAME.h"
 #include "lib_EGLPNUM_TYPENAME.h"
+#include "pivot_log.h"
 
 //#define DJZERO_TOLER EGLPNUM_TYPENAME_PFEAS_TOLER
 #define BASIS_STATS 0
@@ -264,10 +265,52 @@ int EGLPNUM_TYPENAME_ILLbasis_load (EGLPNUM_TYPENAME_lpinfo * lp, EGLPNUM_TYPENA
 		lp->basisid = 0;
 	else
 		lp->basisid = 1;
+	pivot_log_set_reason ("EGLPNUM_TYPENAME: basis loaded into %s (warm start)",
+			lp->O->probname ? lp->O->probname : "LP");
 
 CLEANUP:
 
 	EG_RETURN (rval);
+}
+
+/* internal -> canonical column map for lp, see pivot_log.h */
+static int *pivot_log_map (
+	EGLPNUM_TYPENAME_lpinfo * lp,
+	int force)
+{
+	EGLPNUM_TYPENAME_ILLlpdata *qslp = lp->O;
+	int i, fill = force;
+	int *map = pivot_log_colmap (qslp, qslp->ncols, &fill);
+
+	if (map && fill)
+	{
+		for (i = 0; i < qslp->nstruct; i++)
+			map[qslp->structmap[i]] = i;
+		for (i = 0; i < qslp->nrows; i++)
+			map[qslp->rowmap[i]] = qslp->nstruct + i;
+	}
+	return map;
+}
+
+void EGLPNUM_TYPENAME_ILLbasis_log_sync (
+	EGLPNUM_TYPENAME_lpinfo * lp)
+{
+	if (!pivot_log_active || !lp->baz)
+		return;
+	/* always rebuild the map: lp->O may be a new LP at a recycled address */
+	if (pivot_log_map (lp, 1))
+		pivot_log_sync (lp->O->nrows, lp->baz);
+}
+
+void EGLPNUM_TYPENAME_ILLbasis_log_pivot (
+	EGLPNUM_TYPENAME_lpinfo * lp,
+	int lvar,
+	int evar)
+{
+	if (!pivot_log_active)
+		return;
+	if (pivot_log_map (lp, 0))
+		pivot_log_pivot (lp->O->nrows, lp->baz, lvar, evar);
 }
 
 int EGLPNUM_TYPENAME_ILLbasis_tableau_row (
@@ -1152,6 +1195,10 @@ int EGLPNUM_TYPENAME_ILLbasis_get_initial (
 	rval = set_basis_indices (lp, vstat);
 	CHECKRVALG (rval, CLEANUP);
 	lp->basisid = 0;
+	pivot_log_set_reason ("EGLPNUM_TYPENAME: initial basis for %s (%s), Bixby's "
+			"procedure: slack logicals, plus structurals in place of fixed logicals",
+			lp->O->probname ? lp->O->probname : "LP",
+			algorithm == PRIMAL_SIMPLEX ? "primal" : "dual");
 
 CLEANUP:
 	ILL_IFFREE(vstat);
@@ -1226,6 +1273,7 @@ int EGLPNUM_TYPENAME_ILLbasis_get_cinitial (
 	int *vstat2 = NULL;
 	int singular;
 	int choice = 0;
+	int logsusp = 0;
 
 #if BASIS_STATS > 0
 	int i, nz1 = 0, nz2 = 0;
@@ -1253,6 +1301,9 @@ int EGLPNUM_TYPENAME_ILLbasis_get_cinitial (
 		CHECKRVALG (rval, CLEANUP);
 		rval = set_basis_indices (lp, vstat2);
 		lp->basisid = 0;
+		pivot_log_set_reason ("EGLPNUM_TYPENAME: initial basis for %s (dual), Bixby's "
+				"procedure: slack logicals, plus structurals in place of fixed logicals",
+				lp->O->probname ? lp->O->probname : "LP");
 		ILL_CLEANUP;
 	}
 
@@ -1261,6 +1312,11 @@ int EGLPNUM_TYPENAME_ILLbasis_get_cinitial (
 	rval = get_initial_basis2 (lp, vstat2);
 	CHECKRVALG (rval, CLEANUP);
 	lp->basisid = 0;
+
+	/* the two candidates are only factored to compare them; log the one
+	 * that is kept */
+	pivot_log_suspend ();
+	logsusp = 1;
 
 	/* handle first basis */
 	rval = set_basis_indices (lp, vstat1);
@@ -1323,8 +1379,16 @@ int EGLPNUM_TYPENAME_ILLbasis_get_cinitial (
 		rval = set_basis_indices (lp, vstat1);
 		CHECKRVALG (rval, CLEANUP);
 	}
+	pivot_log_resume ();
+	logsusp = 0;
+	pivot_log_set_reason ("EGLPNUM_TYPENAME: initial basis for %s (primal), the "
+			"better of two Bixby crash bases (candidate %d of 2)",
+			lp->O->probname ? lp->O->probname : "LP", choice == 1 ? 1 : 2);
+	EGLPNUM_TYPENAME_ILLbasis_log_sync (lp);
 
 CLEANUP:
+	if (logsusp)
+		pivot_log_resume ();
 	if (rval == E_SIMPLEX_ERROR)
 	{
 #ifdef HAVE_LIBZ
@@ -1371,6 +1435,9 @@ int EGLPNUM_TYPENAME_ILLbasis_factor (
 	int *singc = 0;
 
 	*singular = 0;
+	/* every basis is factored before it is used: write it to the pivot log
+	 * if it was set by anything other than a logged pivot */
+	EGLPNUM_TYPENAME_ILLbasis_log_sync (lp);
 	do
 	{
 		if (lp->f)
@@ -1400,6 +1467,9 @@ int EGLPNUM_TYPENAME_ILLbasis_factor (
 		{
 			*singular = 1;
 			MESSAGE (__QS_SB_VERB, "Found singular basis!");
+			pivot_log_comment ("EGLPNUM_TYPENAME: singular basis repair in %s, the next %d "
+					"update(s) replace dependent basic columns by logicals",
+					lp->O->probname ? lp->O->probname : "LP", nsing);
 			for (i = 0; i < nsing; i++)
 			{
 				eindex = lp->vindex[lp->O->rowmap[singr[i]]];

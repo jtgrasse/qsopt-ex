@@ -57,6 +57,24 @@ static int TRACE = 0;
 #include "lib_EGLPNUM_TYPENAME.h"								/* for EGLPNUM_TYPENAME_ILLlib_writebasis */
 #include "lp_EGLPNUM_TYPENAME.h"									/* for EGLPNUM_TYPENAME_ILLwrite_lp */
 #include "timing_log.h"
+#include "pivot_log.h"
+
+static const char *pivot_log_phase_name (int phase)
+{
+	switch (phase)
+	{
+	case PRIMAL_PHASEI:
+		return "primal phase I (minimize primal infeasibility, no artificial columns added)";
+	case PRIMAL_PHASEII:
+		return "primal phase II (objective c)";
+	case DUAL_PHASEI:
+		return "dual phase I (minimize dual infeasibility)";
+	case DUAL_PHASEII:
+		return "dual phase II (objective c)";
+	default:
+		return "unknown phase";
+	}
+}
 
 
 static void init_lp_status_info (
@@ -882,6 +900,10 @@ int EGLPNUM_TYPENAME_ILLsimplex (EGLPNUM_TYPENAME_lpinfo * lp, int algorithm, EG
 		QSlog("Problem has %d rows and %d cols and %d nonzeros", lp->nrows, lp->ncols, nonzero);
 	}
 	EGLPNUM_TYPENAME_ILLfct_set_variable_type (lp);
+	pivot_log_comment ("EGLPNUM_TYPENAME: %s simplex started on %s",
+			algorithm == PRIMAL_SIMPLEX ? "primal" :
+			(algorithm == DUAL_SIMPLEX ? "dual" : "primal-or-dual"),
+			lp->O->probname ? lp->O->probname : "LP");
 
 	if (B != 0)
 	{
@@ -1009,6 +1031,7 @@ START:
 		else
 			phase = DUAL_PHASEI;
 	}
+	pivot_log_comment ("EGLPNUM_TYPENAME: entering %s", pivot_log_phase_name (phase));
 
 	rval = EGLPNUM_TYPENAME_ILLprice_build_pricing_info (lp, pinf, phase);
 	CHECKRVALG (rval, CLEANUP);
@@ -1047,6 +1070,15 @@ START:
 		{
 			//ILL_IFTRACE("\t%s:%s:%d\n",__func__,__FILE__,__LINE__);
 			EGLPNUM_TYPENAME_ILLprice_free_pricing_info (pinf);
+			pivot_log_comment ("EGLPNUM_TYPENAME: simplex on %s restarts: %s",
+					lp->O->probname ? lp->O->probname : "LP",
+					it.resumeid == SIMPLEX_RESUME_NUMER ?
+					"numerical trouble, starting over from a new initial basis" :
+					(it.resumeid == SIMPLEX_RESUME_UNSHIFT ?
+					 "bound shifts removed, continuing from the current basis" :
+					 (it.resumeid == SIMPLEX_RESUME_SING ?
+						"basis became singular, refactoring and repairing it" :
+						"continuing from the current basis")));
 			if (it.resumeid == SIMPLEX_RESUME_UNSHIFT)
 			{
 				if (it.pricetype == QS_PRICE_PDEVEX)
@@ -1088,6 +1120,8 @@ START:
 			if (it.nextphase != phase)
 			{
 				//ILL_IFTRACE("\t%s:%s:%d\n",__func__,__FILE__,__LINE__);
+				pivot_log_comment ("EGLPNUM_TYPENAME: phase change to %s; A, b and the "
+						"columns are unchanged", pivot_log_phase_name (it.nextphase));
 				it.newphase = SIMPLEX_PHASE_NEW;
 				phase = it.nextphase;
 				new_price = EGLPNUM_TYPENAME_ILLprice_get_price (pinf, phase);

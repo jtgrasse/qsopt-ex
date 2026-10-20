@@ -96,4 +96,13 @@ void EGLPNUM_TYPENAME_ILLbasis_column_solve (
   EGLPNUM_TYPENAME_ILLbasis_init_basisinfo (
 	EGLPNUM_TYPENAME_lpinfo * lp);
 
+/* pivot log hooks (see pivot_log.h): write lp's basis if it changed without
+ * a pivot, and record that internal column lvar left and evar entered */
+void EGLPNUM_TYPENAME_ILLbasis_log_sync (
+	EGLPNUM_TYPENAME_lpinfo * lp),
+  EGLPNUM_TYPENAME_ILLbasis_log_pivot (
+	EGLPNUM_TYPENAME_lpinfo * lp,
+	int lvar,
+	int evar);
+
 #endif /* EGLPNUM_TYPENAME___BASIS_H */

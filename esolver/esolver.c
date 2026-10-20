@@ -40,6 +40,7 @@
 #include "qs_config.h"
 #include "timing_log.h"
 #include "basis_snapshot.h"
+#include "pivot_log.h"
 #include "factor_mpq.h"
 
 /* ========================================================================= */
@@ -58,6 +59,7 @@ static char *solname = 0;
 static char *readbasis = 0;
 static char *writebasis = 0;
 static int dump_bases = 0;
+static char *pivotlog = 0;
 /** @brief maximum running time */
 static double max_rtime = INT_MAX;
 /** @brief maximum memory usage */
@@ -93,6 +95,8 @@ static void usage (char *s)
 	fprintf (stderr, "   -S    do NOT scale the initial LP\n");
 	fprintf (stderr, "   -T    enable timing output (qsopt_timing.log, time_precision_data, basis_scaling)\n");
 	fprintf (stderr, "   -v    print QSopt version number\n");
+	fprintf (stderr, "   -W f  write the exact LP (A, b, c, bounds with logicals), the starting\n");
+	fprintf (stderr, "         basis and every basis change of the solve to file f\n");
 	fprintf (stderr, "   -R n  maximum running time allowed, default %lf\n",
 						max_rtime);
 	fprintf (stderr, "   -m n  maximum memory usage allowed, default %lu\n",
@@ -204,7 +208,7 @@ static int parseargs (int ac, char **av)
 	int boptind = 1;
 	char *boptarg = 0;
 
-	while ((c = ILLutil_bix_getopt (ac, av, "b:B:d:DEILm:O:p:P:R:STvN:", &boptind, &boptarg)) != EOF)
+	while ((c = ILLutil_bix_getopt (ac, av, "b:B:d:DEILm:O:p:P:R:STvN:W:", &boptind, &boptarg)) != EOF)
 		switch (c)
 		{
 		case 'm':
@@ -251,6 +255,9 @@ static int parseargs (int ac, char **av)
 			break;
 		case 'N':
 			set_log_file(boptarg);
+			break;
+		case 'W':
+			pivotlog = boptarg;
 			break;
 		case '?':
 		default:
@@ -661,7 +668,15 @@ int main (int ac, char **av)
 	ILLutil_init_timer (&timer_solve, "SOLVER");
 	ILLutil_start_timer (&timer_solve);
 	basis_snapshot_init (p_mpq->qslp->nrows);
+	if (pivotlog)
+	{
+		char prob[1024];
+		derive_problem_name (fname, prob, sizeof (prob));
+		rval = pivot_log_open (pivotlog, prob);
+		ILL_CLEANUP_IF (rval);
+	}
 	rval = QSexact_solver (p_mpq, x_mpq, y_mpq, basis, simplexalgo, &status);
+	pivot_log_close ();
 	ILL_CLEANUP_IF (rval);
 	ILLutil_stop_timer (&timer_solve, 1);
 	if (dump_bases) dump_basis_snapshots (p_mpq, fname);

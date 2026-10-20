@@ -183,6 +183,7 @@ static int TRACE = 0;
 #include "mps_EGLPNUM_TYPENAME.h"
 #include "lp_EGLPNUM_TYPENAME.h"
 #include "timing_log.h"
+#include "pivot_log.h"
 
 
 void EGLPNUM_TYPENAME_QSset_precision (const unsigned prec) {
@@ -297,6 +298,9 @@ static int opt_work (EGLPNUM_TYPENAME_QSdata * p, int *status, int primal_or_dua
 
 		rval = EGLPNUM_TYPENAME_ILLlp_scale (p2->qslp);
 		CHECKRVALG (rval, CLEANUP);
+		pivot_log_comment ("EGLPNUM_TYPENAME: solving a scaled copy of %s first; scaling "
+				"multiplies rows and columns of A by constants, so basis indices "
+				"refer to the same columns", p->qslp->probname ? p->qslp->probname : "LP");
 
 		if (primal_or_dual == 0)
 		{
@@ -324,6 +328,8 @@ static int opt_work (EGLPNUM_TYPENAME_QSdata * p, int *status, int primal_or_dua
 		p2->basis = 0;
 		EGLPNUM_TYPENAME_QSfree_prob (p2);
 		p2 = 0;
+		pivot_log_comment ("EGLPNUM_TYPENAME: re-solving the unscaled %s from the final "
+				"basis of the scaled copy", p->qslp->probname ? p->qslp->probname : "LP");
 	}
 
 	if (primal_or_dual == 0)

@@ -665,6 +665,7 @@ void EGLPNUM_TYPENAME_ILLfct_update_basis_info (
 		/* snapshot only real basis changes; a bound flip (lindex < 0)
 		 * leaves baz untouched and would just duplicate the last slot */
 		basis_snapshot_push (lp->baz);
+		EGLPNUM_TYPENAME_ILLbasis_log_pivot (lp, lvar, evar);
 	}
 	else
 	{

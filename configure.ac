@@ -1,7 +1,7 @@
 #                                               -*- Autoconf -*-
 # Process this file with autoconf to produce a configure script.
 
-AC_PREREQ([2.72])
+AC_PREREQ([2.71])
 AC_INIT([QSopt_ex],[2.5.10.3],[https://github.com/jonls/qsopt-ex/issues])
 AC_CONFIG_SRCDIR([qsopt_ex/QSopt_ex.h])
 AC_CONFIG_HEADERS([config.h])

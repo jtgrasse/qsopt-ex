@@ -56,11 +56,9 @@ Makefile.in
 /config.status
 /config.sub
 
-# Problems
+# Problems and the outputs of run_problems.sh
 Problems/*
-!Problems/cycle.mps
-!Problems/co9.mps
-!Problems/dano3_3_LP.mps
+Problems_Outputs/*
 
 # Basis snapshot output directories from esolver runs
 *_Bases/
