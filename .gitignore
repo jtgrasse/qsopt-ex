@@ -59,6 +59,7 @@ Makefile.in
 # Problems and the outputs of run_problems.sh
 Problems/*
 Problems_Outputs/*
+!Problems_Outputs/.gitkeep
 
 # Basis snapshot output directories from esolver runs
 *_Bases/
