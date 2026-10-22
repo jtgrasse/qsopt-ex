@@ -49,7 +49,13 @@ if (( ${#probs[@]} == 0 )); then
 	exit 1
 fi
 
+# memory limit per solve (esolver -m, bytes): half of the total memory, split
+# evenly between the concurrent workers
+memtotal_kb=$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)
+memlimit=$((memtotal_kb * 1024 / 2 / ${#groups[@]}))
+
 echo "${#probs[@]} problem(s), ${#groups[@]} L3 cache(s): ${groups[*]:-unpinned}"
+echo "memory limit per solve: $((memlimit / 1024 / 1024)) MiB"
 
 # shared work queue: index of the next problem, guarded by flock
 queue=$(mktemp)
@@ -80,7 +86,7 @@ worker() {
 		echo "[cpus ${cpus:-all}] start  $name"
 		start=$SECONDS
 		rc=0
-		(cd "$outdir" && "${pin[@]}" "$esolver" -W "${name}_bases.txt" "$f") \
+		(cd "$outdir" && "${pin[@]}" "$esolver" -m "$memlimit" -W "${name}_bases.txt" "$f") \
 			> "$outdir/$name.log" 2>&1 || rc=$?
 		echo "[cpus ${cpus:-all}] finish $name: exit $rc, $((SECONDS - start)) s"
 	done
